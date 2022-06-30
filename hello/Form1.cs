@@ -19,12 +19,22 @@ using System.Net.Sockets;
 using System.Diagnostics;
 
 
+using MQTTnet;
+using MQTTnet.Adapter;
+using MQTTnet.Client.Connecting;
+using MQTTnet.Client.Receiving;
+using MQTTnet.Diagnostics;
+using MQTTnet.Protocol;
+using MQTTnet.Server;
+using System.Threading.Tasks;
+
+using System.Numerics; //use vector       => reference->add reference->System.Numerics
 
 namespace hello
 {
     public partial class Form1 : Form
     {
-
+        
         System.IO.Ports.SerialPort serialport = new System.IO.Ports.SerialPort();
         System.Windows.Forms.Timer _timer;
         float time, timenew;
@@ -43,11 +53,8 @@ namespace hello
         public const int I_UWB_LPS_TAG_DATAFRAME0_LENGTH = 128;
 
         private Boolean receiving;
-        private SerialPort comport;
-        private Int32 totalLength = 0;
         private Thread t;
-        delegate void Display(Byte[] buffer);
-        double Anchor_x, Anchor_y, Anchor_z, Anchor_x1, Anchor_y1, Anchor_diff;
+        delegate void Display();
 
         static DateTime gps_epoch = new DateTime(1980, 1, 6, 0, 0, 0, DateTimeKind.Utc);
         static DateTime unix_epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -64,7 +71,25 @@ namespace hello
         const int m_Scale_diameter = 15;
         Bitmap m_image;
 
-        
+        //MQTT tag message
+        public string payload;
+        string pos_tag;
+        byte[] tag_byte = new byte[1024];
+        double[] tag0_pos = new double[3];
+        double[] tag1_pos = new double[3];
+
+        //MQTT anchor message
+        string pos_anchor;
+        byte[] anchor_byte = new byte[1024];
+        double[] anchor0_pos = new double[2];
+        double[] anchor1_pos = new double[2];
+        double[] anchor2_pos = new double[2];
+        double[] anchor3_pos = new double[2];
+
+        //MQTT only can deliver one messages once,this parameter is used to identify what is the messages type (0=tag,1=anchor,2=disconnect).
+        int MQTT_messages_type = 0;
+
+
 
         // Cache font instead of recreating font objects each time we paint.
         private Font fnt = new Font("Arial", 10);
@@ -115,7 +140,8 @@ namespace hello
 
         public Form1()
         {
-            InitializeComponent();    
+            InitializeComponent();
+            MqttAsync();
             foreach (string com in System.IO.Ports.SerialPort.GetPortNames())
             {
                 comboBox1.Items.Add(com);
@@ -249,12 +275,13 @@ namespace hello
         {
             int picBoxWidth = pictureBox1.Size.Width;
             int picBoxHeight = pictureBox1.Size.Height;
+            Console.WriteLine($"{picBoxHeight}__{picBoxWidth}");
             //int picBoxWidth_mid = pictureBox1.Size.Width/2;
             //int picBoxHeight_mid = pictureBox1.Size.Height/2;
             int picBoxWidth_mid = 0;
             int count = 0;
-            int widthMax = 18; //8 19
-            int hieighMax = 3; //5 19
+            int widthMax = 19; //8
+            int hieighMax = 19; //5
             int width = 0;
             //int px = 0;
             //int py = 0;
@@ -274,22 +301,6 @@ namespace hello
             {
                 m_Width_add = picBoxWidth / widthMax;
             }
-            /*
-            for (width = 0; width < picBoxWidth;)
-            {
-                objGraphic.DrawLine(pen_line, picBoxWidth_mid + width, 0, picBoxWidth_mid + width, picBoxHeight);                              // Vertical(x > 0)
-                objGraphic.DrawString(count.ToString("F01"), drawFont, darwBrush, picBoxWidth_mid + width, picBoxHeight_mid);                  // Draw text(x > 0)
-                objGraphic.DrawLine(pen_line, picBoxWidth_mid - width, 0, picBoxWidth_mid - width, picBoxHeight);                              // Vertical(x < 0)
-                objGraphic.DrawString((count * (-1)).ToString("F01"), drawFont, darwBrush, picBoxWidth_mid - width, picBoxHeight_mid);         // Draw text(x < 0) 
-
-                objGraphic.DrawLine(pen_line, 0, picBoxHeight_mid + width, picBoxWidth, picBoxHeight_mid + width);                             // Parallel(y > 0)
-                objGraphic.DrawString((count * (-1)).ToString("F01"), drawFont, darwBrush, picBoxWidth_mid, picBoxHeight_mid + width);         // Draw text(y > 0)
-                objGraphic.DrawLine(pen_line, 0, picBoxHeight_mid - width, picBoxWidth, picBoxHeight_mid - width);                             // Parallel(y < 0)
-                objGraphic.DrawString(count.ToString("F01"), drawFont, darwBrush, picBoxWidth_mid, picBoxHeight_mid - width);                  // Draw text(y < 0)
-                count = count + 1;
-                width = width + m_Width_add;
-            }
-            */
 
             for (width = 0; width < picBoxWidth;) //畫格線 起點左下(0.0)
             {
@@ -397,86 +408,80 @@ namespace hello
             Application.Exit();
         }
 
-        private void DisplayText(Byte[] buffer)
+        private void DisplayText()
         {
-            //textBox1.Text += String.Format("{0}{1}", BitConverter.ToString(buffer), Environment.NewLine);
+            /*
             label9.Text = buffer[0].ToString("X2");
             label12.Text = Convert.ToString(buffer.Length);
             totalLength = totalLength + buffer.Length;
             label10.Text = totalLength.ToString();
-            /*for (int i = 0; i < 896; i++)
-            {
-                Response[RX_Counter] = buffer[i];
-                if (RX_Counter < 896) RX_Counter++;
-                else RX_Counter = 0;
-            }*/
-            check_uwb(0x55, 0x00, 128);
+            */
+            check_uwb1();
         }
-
         private void DoReceive()
         {
-            /*
-            Byte[] buffer = new Byte[1024];
             while (receiving)
             {
-                if (comport.BytesToRead > 0)
-                {
-                    Int32 length = comport.Read(buffer, 0, buffer.Length);
-                    Array.Resize(ref buffer, length);
-                    Display d = new Display(DisplayText);
-                    this.Invoke(d, new Object[] { buffer });
-                    Array.Resize(ref buffer, 1024);
-                }
-                Thread.Sleep(16);
-            }*/
+                //Console.WriteLine(payload);
+                string[] words;
+                char[] delimiterChars = { ',', ':', '"', '[', ']' };
+                int UWB_tag_id;
+                int UWB_tag_grounp;
+                int UWB_anchor_grounp;
 
-            Boolean readingFromBuffer;
-            Int32 count = 0;
-            Byte[] buffer = new Byte[896];
-            while (receiving)
-            {
-                readingFromBuffer = true;
-                while (comport.BytesToRead < buffer.Length && count < 501)
+                if (pos_tag != null && MQTT_messages_type == 0)
                 {
-                    Thread.Sleep(16);
-                    count++;
-                    if (count > 500) //|| (buffer[0] != 0x55)
+                    //Console.WriteLine(pos_tag);
+                    words = new[] { pos_tag };   // string to string[]
+                    //Console.WriteLine("spilt:");
+                    words = pos_tag.Split(delimiterChars);   // String split according to "delimiterChars"
+                    UWB_tag_id = int.Parse(words[9]);
+                    UWB_tag_grounp = int.Parse(words[13]);
+                    if (UWB_tag_id == 4)
                     {
-                        readingFromBuffer = false;
+                        tag0_pos[0] = double.Parse(words[18]);   // string to double
+                        tag0_pos[1] = double.Parse(words[19]);
+                        tag0_pos[2] = double.Parse(words[20]);
+
+                    }
+                    if (UWB_tag_id == 5)
+                    {
+                        tag1_pos[0] = double.Parse(words[18]);   // string to double
+                        tag1_pos[1] = double.Parse(words[19]);
+                        tag1_pos[2] = double.Parse(words[20]);
+
+                    }
+                    if (pos_anchor != null && MQTT_messages_type == 1)
+                    {
+                        //Console.WriteLine(pos_anchor);
+                        words = new[] { pos_anchor };   // string to string[]
+                                                        //Console.WriteLine("spilt:");
+                        words = pos_anchor.Split(delimiterChars);   // String split according to "delimiterChars"
+
+                        UWB_anchor_grounp = int.Parse(words[9]);
+
+                        //foreach(var word in words){Console.WriteLine($"< {word} >");}
+
+                        anchor0_pos[0] = double.Parse(words[15]);   // string to double
+                        anchor0_pos[1] = double.Parse(words[16]);
+                        anchor1_pos[0] = double.Parse(words[19]);
+                        anchor1_pos[1] = double.Parse(words[20]);
+                        anchor2_pos[0] = double.Parse(words[23]);
+                        anchor2_pos[1] = double.Parse(words[24]);
+                        anchor3_pos[0] = double.Parse(words[27]);
+                        anchor3_pos[1] = double.Parse(words[28]);
+                    }
+                    if (MQTT_messages_type != 2)  
+                    {
+                        Display d = new Display(DisplayText);
+                        this.Invoke(d);
+                    }
+                    else
+                    {
+
                     }
                 }
-                count = 0;
-                count = 0;
-
-                if (readingFromBuffer)
-                {
-                    //Int32 length = comport.Read(buffer, 0, buffer.Length);
-                    comport.Read(buffer, 0, buffer.Length);
-                    Display d = new Display(DisplayText);
-                    this.Invoke(d, new Object[] { buffer });
-              
-                }
-                else
-                {
-                    comport.DiscardInBuffer();
-                }
-
-                if (buffer[0] != 0x55 && buffer[895] != 0xee)
-                {
-                    comport.DiscardInBuffer();
-                }
-                else
-                {
-                    for (int i = 0; i < buffer.Length; i++)
-                    {
-                        Response[RX_Counter] = buffer[i];
-                        if (RX_Counter < 896) RX_Counter++;
-                        else RX_Counter = 0;
-                    }
-                }
-                //Thread.Sleep(16);
             }
-
         }
         float theta = 35 + 90;//角度值 4f->64
         double uwb_radians = 0;
@@ -485,255 +490,70 @@ namespace hello
         double uwb_radians_display = 0;
         double radian = 0;
         private System.Windows.Forms.Timer timer1;
-        private void check_uwb(byte Response1, byte Response2, int Check)//02,10,F3,02,4F,4B,E5,
+        private void check_uwb1()
         {
-            RX_Counter = 0;
-            theta = Convert.ToInt32(textBox2.Text);
-            label32.Text = Convert.ToString(theta);
-            radian = theta * Math.PI / 180;//轉換弧度值
-            //Thread.Sleep(1300);
-            //label10.Text = Response[0].ToString("X2") + " " + Response[1].ToString("X2") + " ";
-            if (Response[0] == Response1 && Response[1] == Response2)
+            label9.Text = "UWB OK";
+            label26.Text = Convert.ToString(tag0_pos[0]);
+            label27.Text = Convert.ToString(tag0_pos[1]);
+            label33.Text = Convert.ToString(tag1_pos[0]);
+            label34.Text = Convert.ToString(tag1_pos[1]);
+            uwb_radians = Math.Atan2(tag1_pos[1] - tag0_pos[1], tag1_pos[0] - tag0_pos[0]); //set tag0_pos close (0.0)
+            uwb_radians = uwb_radians - radian;   
+            uwb_angle = -uwb_radians * (180 / Math.PI);   
+            if (uwb_angle < 0) uwb_angle = uwb_angle + 360;  // (-uwb_radians) mean ( 0~180 and 0~-180 )to 0~360
+
+            label32.Text = Convert.ToString((int)uwb_angle);
+            label28.Text = Convert.ToString((float)uwb_radians);
+
+            Font drawFont = new Font("Arial", 8);
+            m_image = new Bitmap(pictureBox1.Width, pictureBox1.Height);
+
+            SolidBrush darwBrushPos2 = new SolidBrush(Color.Blue);
+            SolidBrush darwBrushPos3 = new SolidBrush(Color.Red);
+            drawPoint(Graphics.FromImage(m_image), darwBrushPos3, tag0_pos[0], tag0_pos[1]);
+            drawPoint(Graphics.FromImage(m_image), darwBrushPos2, tag1_pos[0], tag1_pos[1]);
+            pictureBox1.Image = m_image;
+
+            if (send_flag)
             {
-                label9.Text = "UWB OK";
-                /*
-                label10.Text = Response[0].ToString("X2") + " " + Response[24].ToString("X2") + " " + Response[25].ToString("X2") + " " + Response[26].ToString("X2") + " ";
-                float Tag_dis1 = ((Response[26] << 16) | (Response[25] << 8) | (Response[24] << 0)) / 256000.0f;
-                label12.Text = Convert.ToString(Tag_dis1);*/
+                long cur_ms = stopwatch.ElapsedMilliseconds;
+                MAVLink.mavlink_vision_position_estimate_t vision_position = new MAVLink.mavlink_vision_position_estimate_t();
 
-                Anchor_x = ((Response[6] << 24) | (Response[5] << 16) | (Response[4] << 8) | (0x00 << 0)) / 256000.0f;
-                label26.Text = Convert.ToString(Anchor_x);
-                Anchor_y = ((Response[9] << 24) | (Response[8] << 16) | (Response[7] << 8) | (0x00 << 0)) / 256000.0f;
-                label27.Text = Convert.ToString(Anchor_y);
-                //Anchor_z = ((Response[12] << 24) | (Response[11] << 16) | (Response[10] << 8) | (0x00 << 0)) / 256000.0f;
-                //Anchor_z = Anchor_z + 0.3;
+                vision_position.usec = (ulong)(cur_ms * 1000);
 
-                /* tag1_address
-                Anchor_x1 = ((Response[33] << 24) | (Response[32] << 16) | (Response[31] << 8) | (0x00 << 0)) / 256000.0f;
-                label33.Text = Convert.ToString(Anchor_x1);
-                Anchor_y1 = ((Response[36] << 24) | (Response[35] << 16) | (Response[34] << 8) | (0x00 << 0)) / 256000.0f;
-                label34.Text = Convert.ToString(Anchor_y1);
-                */
+                vision_position.x = (float)(tag1_pos[0] * Math.Cos(radian) + tag1_pos[1] * Math.Sin(radian)); //north for use compass
+                vision_position.y = (float)-((-tag1_pos[0] * Math.Sin(radian)) + tag1_pos[1] * Math.Cos(radian)); //east  for use compass
 
-                /* tag2_address
-                Anchor_x1 = ((Response[60] << 24) | (Response[59] << 16) | (Response[58] << 8) | (0x00 << 0)) / 256000.0f;
-                label33.Text = Convert.ToString(Anchor_x1);
-                Anchor_y1 = ((Response[63] << 24) | (Response[62] << 16) | (Response[61] << 8) | (0x00 << 0)) / 256000.0f;
-                label34.Text = Convert.ToString(Anchor_y1);
-                */
+                vision_position.yaw = (float)-uwb_radians;  //In NED frame the Z-axis points down to represent positive. so we need add negative.
 
-                /*tag5_address */
-               Anchor_x1 = ((Response[141] << 24) | (Response[140] << 16) | (Response[139] << 8) | (0x00 << 0)) / 256000.0f;
-               label33.Text = Convert.ToString(Anchor_x1);
-               Anchor_y1 = ((Response[144] << 24) | (Response[143] << 16) | (Response[142] << 8) | (0x00 << 0)) / 256000.0f;
-               label34.Text = Convert.ToString(Anchor_y1);
-               
+                label29.Text = Convert.ToString(vision_position.x);
+                label30.Text = Convert.ToString(vision_position.y);
 
-               // uwb_radians = Math.Atan2(Anchor_y - Anchor_y1, 1.2 - 0.5);  //tag5 close (0.0)
-               uwb_radians = Math.Atan2(Anchor_y - Anchor_y1, Anchor_x - Anchor_x1); //tag5 close (0.0)
-               uwb_radians = uwb_radians - radian;
-                //uwb_radians = Math.Atan2(Anchor_y1 - Anchor_y, Anchor_x1 - Anchor_x); //tag0 close (0.0)
+                DroneData drone = drones["bebop2"];
+                drone.lost_count = 0;
 
-                uwb_angle = -uwb_radians * (180 / Math.PI);
-               if (uwb_angle < 0) uwb_angle = uwb_angle + 360;
-
-
-               //for F450 
-               /*
-               uwb_angle = uwb_radians * (180 / Math.PI);
-               uwb_angle_display = -uwb_radians * (180 / Math.PI);
-               uwb_angle_display = uwb_angle_display + 270;
-
-               uwb_angle = uwb_angle + 270;
-               if (uwb_angle > 360) uwb_angle = uwb_angle - 360;
-               uwb_radians = uwb_angle * ( Math.PI/180);
-               uwb_radians = uwb_radians + 2 * Math.PI;
-               //if (uwb_radians > Math.PI) uwb_radians = uwb_radians - Math.PI; //APM Radians is -PI ~ PI
-               */
-
-
-                label32.Text = Convert.ToString((int)uwb_angle);   
-                label28.Text = Convert.ToString((float)uwb_radians);
-
-                //Anchor_diff = Anchor_y1 - Anchor_y; //Anchor_x - Anchor_x1
-                //label31.Text = Convert.ToString(Anchor_diff);
-
-                Font drawFont = new Font("Arial", 8);
-                m_image = new Bitmap(pictureBox1.Width, pictureBox1.Height);
-
-                /* 畫出航點
-                SolidBrush darwBrushPos1 = new SolidBrush(Color.Red);
-                drawPoint(Graphics.FromImage(m_image), darwBrushPos1, float.Parse(textBox3.Text), float.Parse(textBox4.Text));
-                drawPoint(Graphics.FromImage(m_image), darwBrushPos1, float.Parse(textBox5.Text), float.Parse(textBox6.Text));
-                */
-
-                SolidBrush darwBrushPos2 = new SolidBrush(Color.Blue);
-                drawPoint(Graphics.FromImage(m_image), darwBrushPos2, Anchor_x, Anchor_y);
-                drawPoint(Graphics.FromImage(m_image), darwBrushPos2, Anchor_x1, Anchor_y1);
-                pictureBox1.Image = m_image;
-                //if (!send_flag) pictureBox1.Image = m_image;
-
-
-                //processFrameData();
-                if (send_flag)
+                byte[] pkt;
+                if (tag1_pos[0] > -10 && tag1_pos[0] < 40 && tag1_pos[1] > -10 && tag1_pos[1] < 40) // limit
                 {
-                    long cur_ms = stopwatch.ElapsedMilliseconds;
-                    //MAVLink.mavlink_att_pos_mocap_t att_pos = new MAVLink.mavlink_att_pos_mocap_t();
-                    MAVLink.mavlink_vision_position_estimate_t vision_position = new MAVLink.mavlink_vision_position_estimate_t();
-                    //att_pos.time_usec = (ulong)(((DateTime.UtcNow - unix_epoch).TotalMilliseconds - 10) * 1000);
-                    //att_pos.time_usec = (ulong)(cur_ms * 1000);
-                    vision_position.usec = (ulong)(cur_ms * 1000);
-                    //att_pos.x = Anchor_y; //north Anchor_y
-                    //att_pos.y = Anchor_x; //east Anchor_x
-
-                    //att_pos.x = (float)(Anchor_x * Math.Cos(radian) + Anchor_y * Math.Sin(radian)); //north
-                    //att_pos.y = (float)-((-Anchor_x * Math.Sin(radian)) + Anchor_y * Math.Cos(radian)); //east
-                    //att_pos.z = (float)-Anchor_z; //down
-                    //att_pos.q = new float[4] { 0, 0, (float) uwb_angle, 0 }; //rbData.qw, rbData.qx, rbData.qz, -rbData.qy 
-
-                    vision_position.x = (float)(Anchor_x * Math.Cos(radian) + Anchor_y * Math.Sin(radian)); //north for use compass
-                    vision_position.y = (float) - ((-Anchor_x * Math.Sin(radian)) + Anchor_y * Math.Cos(radian)); //east  for use compass
-                    //vision_position.x = (float)(Anchor_x * Math.Cos(uwb_radians) + Anchor_y * Math.Sin(uwb_radians)); //north for use compass
-                    //vision_position.y = (float) - ((-Anchor_x * Math.Sin(uwb_radians)) + Anchor_y * Math.Cos(uwb_radians)); //east  for use compass
-                    vision_position.yaw = (float) -uwb_radians;
-                    // only uwb angle
-                    /*
-                    vision_position.x = (float) Anchor_x;
-                    vision_position.y = (float) - Anchor_y;//East
-                    vision_position.yaw = (float) - uwb_radians; // UAV compass is clockwise but UWB angle is counter clockwise
-                    */
-
-                    //Anchor_x = vision_position.x;
-                    //Anchor_y = vision_position.y;
-                    //Anchor_z = att_pos.z;
-
-
-                    //SolidBrush darwBrushPos3 = new SolidBrush(Color.Red);
-                    //drawPoint(Graphics.FromImage(m_image), darwBrushPos3, Anchor_x, Anchor_y);
-                    //pictureBox1.Image = m_image;
-
-
-                    label29.Text = Convert.ToString(vision_position.x);
-                    label30.Text = Convert.ToString(vision_position.y);
-                    
-
-                    //att_pos.q = new float[4] { rbData.qw, rbData.qx, rbData.qz, -rbData.qy };
-                    DroneData drone = drones["bebop2"];
-                    drone.lost_count = 0;
-                    
-                    byte[] pkt;
-                    //pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.ATT_POS_MOCAP, att_pos);
-                    //if (Anchor_x > 0.1 && Anchor_x1 > 0.1 && Anchor_x < 3.5 && Anchor_x1 < 3.5 && Anchor_y > 0.1 && Anchor_y1 > 0.1 && Anchor_y < 6 && Anchor_y1 < 6)//lab
-                    //if (Anchor_diff > 0.1 && Anchor_diff < 0.9 && Anchor_x1 > 0.1 && Anchor_y1 > 0 && Anchor_y1 < 11) //lab
-                    if (Anchor_x > -10 && Anchor_x < 40 && Anchor_y > -10 && Anchor_y < 40) //corridor
-                    {
-                        pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.VISION_POSITION_ESTIMATE, vision_position);
-                        mavSock.SendTo(pkt, drone.ep);
-                    }
-                    else
-                    {
-                        pos_err = pos_err + 1;
-                        label36.Text = Convert.ToString(pos_err);
-                    }
+                    pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.VISION_POSITION_ESTIMATE, vision_position);
+                    mavSock.SendTo(pkt, drone.ep);
                 }
-                // for (int i = 0; i < 23; i++ )
-                //     richTextBox1.Text += Response[i].ToString("X2") + " "; 
-
-                /*
-                if (log_flag)
+                else
                 {
-                    Log_Counter = Log_Counter+1;
-                    if (Anchor_x1 > 0.1 && Anchor_x1 < 3 && Anchor_y1 > 0 && Anchor_y1 < 11)
-                    { 
-                        try
-                        {
-                            wSheet = (Excel._Worksheet)wBook.Worksheets[1];   // 引用第一個工作表
-                            wSheet.Name = "UWB Sensor Value Log";   // 命名工作表的名稱
-                            wSheet.Activate();  // 設定工作表焦點  
-
-                            excelApp.Cells[Log_Counter, 1] = Anchor_x; //att_pos.x
-                            excelApp.Cells[Log_Counter, 2] = Anchor_y; //att_pos.y
-                            //excelApp.Cells[Log_Counter, 3] = Anchor_z; //att_pos.z
-                            excelApp.Cells[Log_Counter, 3] = Anchor_x1; //att_pos.x
-                            excelApp.Cells[Log_Counter, 4] = Anchor_y1; //att_pos.y
-                            excelApp.Cells[Log_Counter, 5] = uwb_angle;
-                            excelApp.Cells[Log_Counter, 6] = (Anchor_x + Anchor_x1)/2;
-                        }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine("產生報表時出錯！" + Environment.NewLine + ex.Message);
-                    }
-                    }
-                    if (log_flag_set)
-                    {
-                        try
-                        {
-                            //另存活頁簿
-                            wBook.SaveAs(pathFile, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Excel.XlSaveAsAccessMode.xlNoChange, Type.Missing, Type.Missing, Type.Missing, Type.Missing, Type.Missing);
-                            Console.WriteLine("儲存文件於 " + Environment.NewLine + pathFile);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine("儲存檔案出錯，檔案可能正在使用" + Environment.NewLine + ex.Message);
-                        }
-
-                        wBook.Close(false, Type.Missing, Type.Missing);   //關閉活頁簿
-                        excelApp.Quit();  //關閉Excel
-                        System.Runtime.InteropServices.Marshal.ReleaseComObject(excelApp);  //釋放Excel資源
-                        wBook = null;
-                        wSheet = null;
-                        excelApp = null;
-                        GC.Collect();
-                        Console.Read();
-                        log_flag = false;
-                        log_flag_set = false;
-                        Log_Counter = 0;
-                    }
+                    pos_err = pos_err + 1;
+                    label36.Text = Convert.ToString(pos_err);
                 }
+            }
 
-                */
-            }    
         }
 
-        
 
         private void button2_Click(object sender, EventArgs e)
         {
-            //設定連接埠為9600、n、8、1、n
-            /*
-            serialport.PortName = comboBox1.Text;
-            serialport.BaudRate = 460800;
-            serialport.DataBits = 8;                   
-            serialport.StopBits = System.IO.Ports.StopBits.One;
-            serialport.Parity = System.IO.Ports.Parity.None;
-            serialport.Handshake = System.IO.Ports.Handshake.None;
-            serialport.Encoding = Encoding.Default;//傳輸編碼方式
-            serialport.DataReceived += new SerialDataReceivedEventHandler(ReceiveMessage);
-
-            try
-            {
-                serialport.Open();
-                label21.Text = "connect ok";
-                textBox1.Text = "Initial text contents of the TextBox.";
-            }
-            catch (UnauthorizedAccessException uae)
-            {
-                serialport.Close();
-                serialport.Dispose();
-                label21.Text = "connect fall";
-            }
-            //button2.Text = "連線";
-            */
-
-            comport = new SerialPort(comboBox1.Text,921600 , Parity.None, 8, StopBits.One);
-            if (!comport.IsOpen)
-            {
-                comport.Open();
-                receiving = true;
-                t = new Thread(DoReceive);
-                t.IsBackground = true;
-                t.Start();
-            }
+            receiving = true;
+            t = new Thread(DoReceive);
+            t.IsBackground = true;
+            t.Start();
         }
 
 
@@ -779,7 +599,7 @@ namespace hello
             if (log_flag)
             {
                 Log_Counter = Log_Counter + 1;
-                if (Anchor_y > 0)
+                if (tag1_pos[1] > 0)
                 {
                     try
                     {
@@ -788,8 +608,8 @@ namespace hello
                         wSheet.Activate();  // 設定工作表焦點  
 
                         excelApp.Cells[Log_Counter, 1] = timenew / 10; //att_pos.x
-                        excelApp.Cells[Log_Counter, 2] = Anchor_x; //att_pos.y
-                        excelApp.Cells[Log_Counter, 3] = Anchor_y; //att_pos.y
+                        excelApp.Cells[Log_Counter, 2] = tag1_pos[0]; //att_pos.y
+                        excelApp.Cells[Log_Counter, 3] = tag1_pos[1]; //att_pos.y
                                                                    //excelApp.Cells[Log_Counter, 3] = Anchor_z; //att_pos.z
                                                                    //excelApp.Cells[Log_Counter, 3] = Anchor_x1; //att_pos.x
                                                                    //excelApp.Cells[Log_Counter, 4] = Anchor_y1; //att_pos.y
@@ -906,14 +726,14 @@ namespace hello
 
             float waypoint1_x = 0.0f + float.Parse(textBox3.Text);
             float waypoint1_y = 0.0f + float.Parse(textBox4.Text);
-            //cmd.x = (float)(waypoint1_x * Math.Cos(radian) + waypoint1_y * Math.Sin(radian)); //north
-            //cmd.y = (float)-((-waypoint1_x * Math.Sin(radian)) + waypoint1_y * Math.Cos(radian)); //east
-            cmd.x = waypoint1_x;
-            cmd.y = -waypoint1_y;
+            cmd.x = (float)(waypoint1_x * Math.Cos(radian) + waypoint1_y * Math.Sin(radian)); //north
+            cmd.y = (float)-((-waypoint1_x * Math.Sin(radian)) + waypoint1_y * Math.Cos(radian)); //east
+            //cmd.x = waypoint1_x;
+            //cmd.y = -waypoint1_y;
             //label33.Text = Convert.ToString(cmd.x);
             //label34.Text = Convert.ToString(cmd.y);
 
-            cmd.z = -1.1f;
+            cmd.z = -1.5f;
             DroneData drone = drones["bebop2"];
             byte[] pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.SET_POSITION_TARGET_LOCAL_NED, cmd);
             mavSock.SendTo(pkt, drone.ep);
@@ -962,16 +782,6 @@ namespace hello
         }
 
         private void textBox3_TextChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void label36_Click(object sender, EventArgs e)
-        {
-
-        }
-
-        private void label38_Click(object sender, EventArgs e)
         {
 
         }
@@ -1041,14 +851,14 @@ namespace hello
 
             float waypoint2_x = 0.0f + float.Parse(textBox5.Text);
             float waypoint2_y = 0.0f + float.Parse(textBox6.Text);
-            //cmd.x = (float)(waypoint2_x * Math.Cos(radian) + waypoint2_y * Math.Sin(radian)); //north if 需補償角度的話
-            //cmd.y = (float)-((-waypoint2_x * Math.Sin(radian)) + waypoint2_y * Math.Cos(radian)); //east
-            cmd.x = waypoint2_x;
-            cmd.y = -waypoint2_y;
+            cmd.x = (float)(waypoint2_x * Math.Cos(radian) + waypoint2_y * Math.Sin(radian)); //north
+            cmd.y = (float)-((-waypoint2_x * Math.Sin(radian)) + waypoint2_y * Math.Cos(radian)); //east
+            //cmd.x = waypoint2_x;
+            //cmd.y = -waypoint2_y;
             //label33.Text = Convert.ToString(cmd.x);
             //label34.Text = Convert.ToString(cmd.y);
 
-            cmd.z = -1.1f;
+            cmd.z = -1.5f;
             DroneData drone = drones["bebop2"];
             byte[] pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.SET_POSITION_TARGET_LOCAL_NED, cmd);
             mavSock.SendTo(pkt, drone.ep);
@@ -1064,6 +874,46 @@ namespace hello
         {
         }
 
+        private async Task MqttAsync()
+        {
+            var optionsBuilder = new MqttServerOptionsBuilder().WithConnectionBacklog(100).WithDefaultEndpointPort(1883);
+            var mqttServer = new MqttFactory().CreateMqttServer();
+            await mqttServer.StartAsync(optionsBuilder.Build());
+            mqttServer.ApplicationMessageReceivedHandler = new MqttApplicationMessageReceivedHandlerDelegate(e =>
+            {
+                //Console.WriteLine($"Client:{e.ClientId} Topic:{e.ApplicationMessage.Topic} Message:{Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0])}");
+                payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]);
+                if (payload.Contains("disconnect"))
+                {
+                    Console.WriteLine(Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]));
+                    MQTT_messages_type = 2;
+                }
+                else
+                {
+                    if (payload.Contains("tag") && payload.Length > 50)
+                    {
+                        tag_byte = e.ApplicationMessage.Payload ?? new byte[0];
+                        pos_tag = Encoding.UTF8.GetString(tag_byte);
+                        MQTT_messages_type = 0;
+                    }
+                    else if (payload.Contains("anchor") && payload.Length > 50)
+                    {
+                        anchor_byte = e.ApplicationMessage.Payload ?? new byte[0];
+                        pos_anchor = Encoding.UTF8.GetString(anchor_byte);
+                        MQTT_messages_type = 1;
+                    }
+                }
+
+            });
+            mqttServer.ClientConnectedHandler = new MqttServerClientConnectedHandlerDelegate(e =>
+            {
+                //Console.WriteLine($"Client:{e.ClientId} 已連接！");
+            });
+            mqttServer.ClientDisconnectedHandler = new MqttServerClientDisconnectedHandlerDelegate(e =>
+            {
+                //Console.WriteLine($"Client:{e.ClientId}已離線！");
+            });
+        }
 
     }
 
