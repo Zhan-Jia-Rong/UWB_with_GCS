@@ -28,7 +28,9 @@ using MQTTnet.Protocol;
 using MQTTnet.Server;
 using System.Threading.Tasks;
 
-using System.Numerics; //use vector       => reference->add reference->System.Numerics
+using System.Numerics; //use vector                             => reference->add reference-> System.Numerics
+using System.Web.Script.Serialization;  // use Json format      => reference->add reference-> System.Web.Extensions
+using Newtonsoft.Json.Linq;  //use JObject Parse                => reference->add reference->json.NET .NET 4.0
 
 namespace hello
 {
@@ -275,7 +277,7 @@ namespace hello
         {
             int picBoxWidth = pictureBox1.Size.Width;
             int picBoxHeight = pictureBox1.Size.Height;
-            Console.WriteLine($"{picBoxHeight}__{picBoxWidth}");
+            //Console.WriteLine($"{picBoxHeight}__{picBoxWidth}");
             //int picBoxWidth_mid = pictureBox1.Size.Width/2;
             //int picBoxHeight_mid = pictureBox1.Size.Height/2;
             int picBoxWidth_mid = 0;
@@ -407,7 +409,119 @@ namespace hello
         {
             Application.Exit();
         }
+        private void use_str_Spilt()
+        {
+            string[] words;
+            char[] delimiterChars = { ',', ':', '"', '[', ']' };
+            int UWB_tag_id;
+            int UWB_tag_grounp;
+            int UWB_anchor_grounp;
 
+            if (pos_tag != null && MQTT_messages_type == 0)
+            {
+                words = new[] { pos_tag };   // string to string[]
+                words = pos_tag.Split(delimiterChars);   // String split according to "delimiterChars"
+                UWB_tag_id = int.Parse(words[9]);
+                UWB_tag_grounp = int.Parse(words[13]);
+                if (UWB_tag_id == 4)
+                {
+                    tag0_pos[0] = double.Parse(words[18]);   // string to double
+                    tag0_pos[1] = double.Parse(words[19]);
+                    tag0_pos[2] = double.Parse(words[20]);
+
+                }
+                if (UWB_tag_id == 5)
+                {
+                    tag1_pos[0] = double.Parse(words[18]);   // string to double
+                    tag1_pos[1] = double.Parse(words[19]);
+                    tag1_pos[2] = double.Parse(words[20]);
+
+                }
+                if (pos_anchor != null && MQTT_messages_type == 1)
+                {
+                    //Console.WriteLine(pos_anchor);
+                    words = new[] { pos_anchor };   // string to string[]
+                                                    //Console.WriteLine("spilt:");
+                    words = pos_anchor.Split(delimiterChars);   // String split according to "delimiterChars"
+
+                    UWB_anchor_grounp = int.Parse(words[9]);
+
+                    //foreach(var word in words){Console.WriteLine($"< {word} >");}
+
+                    anchor0_pos[0] = double.Parse(words[15]);   // string to double
+                    anchor0_pos[1] = double.Parse(words[16]);
+                    anchor1_pos[0] = double.Parse(words[19]);
+                    anchor1_pos[1] = double.Parse(words[20]);
+                    anchor2_pos[0] = double.Parse(words[23]);
+                    anchor2_pos[1] = double.Parse(words[24]);
+                    anchor3_pos[0] = double.Parse(words[27]);
+                    anchor3_pos[1] = double.Parse(words[28]);
+                }
+                if (MQTT_messages_type != 2)
+                {
+                    Display d = new Display(DisplayText);
+                    this.Invoke(d);
+                }
+                else
+                {
+
+                }
+            }
+        }
+        private void use_json_format_spilt()
+        {
+            int UWB_tag_id;
+            int UWB_tag_grounp;
+            int UWB_anchor_grounp;
+            var getResult = JObject.Parse(payload);
+
+            if ((string)getResult["command"] == "tag")
+            {
+                //Console.WriteLine(payload);
+                UWB_tag_id = (int)getResult["tag_id"];
+                UWB_tag_grounp = (int)getResult["group"];
+
+                if (UWB_tag_id == 4)
+                {
+                    tag0_pos[0] = (double)getResult["pos"][0];   
+                    tag0_pos[1] = (double)getResult["pos"][1];
+                    tag0_pos[2] = (double)getResult["pos"][2];
+
+                }
+                if (UWB_tag_id == 5)
+                {
+                    tag1_pos[0] = (double)getResult["pos"][0];  
+                    tag1_pos[1] = (double)getResult["pos"][1];
+                    tag1_pos[2] = (double)getResult["pos"][2];
+
+                }
+                if ((string)getResult["command"] == "anchor")
+                {
+                    UWB_anchor_grounp = (int)getResult["group"];
+
+                    anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
+                    anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
+
+                    anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
+                    anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
+
+                    anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
+                    anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
+
+                    anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
+                    anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
+                }
+                if ((string)getResult["command"] != "disconnect")
+                {
+                    Display d = new Display(DisplayText);
+                    this.Invoke(d);
+                }
+                else
+                {
+
+                }
+            }
+        }
         private void DisplayText()
         {
             /*
@@ -422,65 +536,8 @@ namespace hello
         {
             while (receiving)
             {
-                //Console.WriteLine(payload);
-                string[] words;
-                char[] delimiterChars = { ',', ':', '"', '[', ']' };
-                int UWB_tag_id;
-                int UWB_tag_grounp;
-                int UWB_anchor_grounp;
-
-                if (pos_tag != null && MQTT_messages_type == 0)
-                {
-                    //Console.WriteLine(pos_tag);
-                    words = new[] { pos_tag };   // string to string[]
-                    //Console.WriteLine("spilt:");
-                    words = pos_tag.Split(delimiterChars);   // String split according to "delimiterChars"
-                    UWB_tag_id = int.Parse(words[9]);
-                    UWB_tag_grounp = int.Parse(words[13]);
-                    if (UWB_tag_id == 4)
-                    {
-                        tag0_pos[0] = double.Parse(words[18]);   // string to double
-                        tag0_pos[1] = double.Parse(words[19]);
-                        tag0_pos[2] = double.Parse(words[20]);
-
-                    }
-                    if (UWB_tag_id == 5)
-                    {
-                        tag1_pos[0] = double.Parse(words[18]);   // string to double
-                        tag1_pos[1] = double.Parse(words[19]);
-                        tag1_pos[2] = double.Parse(words[20]);
-
-                    }
-                    if (pos_anchor != null && MQTT_messages_type == 1)
-                    {
-                        //Console.WriteLine(pos_anchor);
-                        words = new[] { pos_anchor };   // string to string[]
-                                                        //Console.WriteLine("spilt:");
-                        words = pos_anchor.Split(delimiterChars);   // String split according to "delimiterChars"
-
-                        UWB_anchor_grounp = int.Parse(words[9]);
-
-                        //foreach(var word in words){Console.WriteLine($"< {word} >");}
-
-                        anchor0_pos[0] = double.Parse(words[15]);   // string to double
-                        anchor0_pos[1] = double.Parse(words[16]);
-                        anchor1_pos[0] = double.Parse(words[19]);
-                        anchor1_pos[1] = double.Parse(words[20]);
-                        anchor2_pos[0] = double.Parse(words[23]);
-                        anchor2_pos[1] = double.Parse(words[24]);
-                        anchor3_pos[0] = double.Parse(words[27]);
-                        anchor3_pos[1] = double.Parse(words[28]);
-                    }
-                    if (MQTT_messages_type != 2)  
-                    {
-                        Display d = new Display(DisplayText);
-                        this.Invoke(d);
-                    }
-                    else
-                    {
-
-                    }
-                }
+                //use_str_Spilt();
+                use_json_format_spilt();
             }
         }
         float theta = 35 + 90;//角度值 4f->64
@@ -876,6 +933,7 @@ namespace hello
 
         private async Task MqttAsync()
         {
+            
             var optionsBuilder = new MqttServerOptionsBuilder().WithConnectionBacklog(100).WithDefaultEndpointPort(1883);
             var mqttServer = new MqttFactory().CreateMqttServer();
             await mqttServer.StartAsync(optionsBuilder.Build());
@@ -885,19 +943,30 @@ namespace hello
                 payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]);
                 if (payload.Contains("disconnect"))
                 {
-                    Console.WriteLine(Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]));
+                    //Console.WriteLine(Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]));
                     MQTT_messages_type = 2;
                 }
                 else
                 {
                     if (payload.Contains("tag") && payload.Length > 50)
                     {
+                        //use string spilt
                         tag_byte = e.ApplicationMessage.Payload ?? new byte[0];
                         pos_tag = Encoding.UTF8.GetString(tag_byte);
                         MQTT_messages_type = 0;
                     }
                     else if (payload.Contains("anchor") && payload.Length > 50)
                     {
+                        /*  
+                        //use json format spilt
+                        var getResult = JObject.Parse(payload);
+                        Console.WriteLine(getResult["anchor_pos"][0][0]);
+                        Console.WriteLine("---------");
+                        double[] anchor_pos_test = new double[2];
+                        anchor_pos_test[0] = (double)getResult["anchor_pos"][0][0];
+                        */
+
+                        //use string spilt
                         anchor_byte = e.ApplicationMessage.Payload ?? new byte[0];
                         pos_anchor = Encoding.UTF8.GetString(anchor_byte);
                         MQTT_messages_type = 1;
