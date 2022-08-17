@@ -21,7 +21,11 @@ using System.Diagnostics;
 
 using MQTTnet;
 using MQTTnet.Adapter;
+using MQTTnet.Client;
 using MQTTnet.Client.Connecting;
+using MQTTnet.Client.Disconnecting;
+using MQTTnet.Client.Options;
+using MQTTnet.Extensions.ManagedClient;
 using MQTTnet.Client.Receiving;
 using MQTTnet.Diagnostics;
 using MQTTnet.Protocol;
@@ -75,6 +79,7 @@ namespace hello
 
         //MQTT tag message
         public string payload;
+        public string payloadText;
         string pos_tag;
         byte[] tag_byte = new byte[1024];
         double[] tag0_pos = new double[3];
@@ -143,7 +148,8 @@ namespace hello
         public Form1()
         {
             InitializeComponent();
-            MqttAsync();
+            //MqttAsync();
+            MqttClientAsync();
             foreach (string com in System.IO.Ports.SerialPort.GetPortNames())
             {
                 comboBox1.Items.Add(com);
@@ -537,7 +543,7 @@ namespace hello
             while (receiving)
             {
                 //use_str_Spilt();
-                use_json_format_spilt();
+                //use_json_format_spilt();
             }
         }
         float theta = 35 + 90;//角度值 4f->64
@@ -939,7 +945,7 @@ namespace hello
             await mqttServer.StartAsync(optionsBuilder.Build());
             mqttServer.ApplicationMessageReceivedHandler = new MqttApplicationMessageReceivedHandlerDelegate(e =>
             {
-                //Console.WriteLine($"Client:{e.ClientId} Topic:{e.ApplicationMessage.Topic} Message:{Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0])}");
+                Console.WriteLine($"Client:{e.ClientId} Topic:{e.ApplicationMessage.Topic} Message:{Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0])}");
                 payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]);
                 if (payload.Contains("disconnect"))
                 {
@@ -984,7 +990,44 @@ namespace hello
             });
         }
 
+        private async Task MqttClientAsync()
+        {
+            var factory = new MqttFactory();
+
+            var clientOptions = new MqttClientOptionsBuilder()
+                .WithClientId("TestClient")
+                .WithTcpServer("140.112.45.232", 1883)
+                .Build();
+
+            var client = factory.CreateMqttClient();
+            client.ApplicationMessageReceivedHandler = new MqttApplicationMessageReceivedHandlerDelegate(msg =>
+            {
+                payloadText = Encoding.UTF8.GetString(msg?.ApplicationMessage?.Payload ?? Array.Empty<byte>());
+
+                Console.WriteLine($"Received msg: {payloadText}");
+            });
+            /*
+            client.UseApplicationMessageReceivedHandler(msg =>
+            {
+                var payloadText = Encoding.UTF8.GetString(
+                    msg?.ApplicationMessage?.Payload ?? Array.Empty<byte>());
+
+                Console.WriteLine($"Received msg: {payloadText}");
+            });
+            */
+            await client.ConnectAsync(clientOptions, CancellationToken.None);
+
+            await client.SubscribeAsync(
+                new MqttTopicFilter
+                {
+                    //Topic = "ITRI1_Result"
+                    Topic = "ITRI1_MonitorReport"
+                    //Topic = "ITRI1_SensorMessage"
+                }
+            );
+        }
     }
+
 
     
 }
