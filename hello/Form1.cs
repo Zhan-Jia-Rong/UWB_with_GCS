@@ -479,53 +479,52 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-            var getResult = JObject.Parse(payload);
+            var getResult = JObject.Parse(payloadText);
 
-            if ((string)getResult["command"] == "tag")
+
+            //Console.WriteLine(payload);
+            UWB_tag_id = (int)getResult["euid"];
+            UWB_tag_grounp = (int)getResult["pan_id"];
+
+            if (UWB_tag_id == 01)
             {
-                //Console.WriteLine(payload);
-                UWB_tag_id = (int)getResult["tag_id"];
-                UWB_tag_grounp = (int)getResult["group"];
+                tag0_pos[0] = (double)getResult["global_pos"][0];   
+                tag0_pos[1] = (double)getResult["global_pos"][1];
+                tag0_pos[2] = (double)getResult["global_pos"][2];
+                Console.WriteLine((string)getResult["global_pos"][0]);
+            }
+            if (UWB_tag_id == 02)
+            {
+                tag1_pos[0] = (double)getResult["global_pos"][0];  
+                tag1_pos[1] = (double)getResult["global_pos"][1];
+                tag1_pos[2] = (double)getResult["global_pos"][2];
+                Console.WriteLine((string)getResult["global_pos"][0]);
+            }
+            
+            if ((string)getResult["command"] == "anchor")
+            {
+                UWB_anchor_grounp = (int)getResult["group"];
 
-                if (UWB_tag_id == 4)
-                {
-                    tag0_pos[0] = (double)getResult["pos"][0];   
-                    tag0_pos[1] = (double)getResult["pos"][1];
-                    tag0_pos[2] = (double)getResult["pos"][2];
+                anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
+                anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
 
-                }
-                if (UWB_tag_id == 5)
-                {
-                    tag1_pos[0] = (double)getResult["pos"][0];  
-                    tag1_pos[1] = (double)getResult["pos"][1];
-                    tag1_pos[2] = (double)getResult["pos"][2];
+                anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
+                anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
 
-                }
-                if ((string)getResult["command"] == "anchor")
-                {
-                    UWB_anchor_grounp = (int)getResult["group"];
+                anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
+                anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
 
-                    anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
-                    anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
+                anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
+                anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
+            }
+            if ((string)getResult["command"] != "disconnect")
+            {
+                Display d = new Display(DisplayText);
+                this.Invoke(d);
+            }
+            else
+            {
 
-                    anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
-                    anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
-
-                    anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
-                    anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
-
-                    anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
-                    anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
-                }
-                if ((string)getResult["command"] != "disconnect")
-                {
-                    Display d = new Display(DisplayText);
-                    this.Invoke(d);
-                }
-                else
-                {
-
-                }
             }
         }
         private void DisplayText()
@@ -543,7 +542,7 @@ namespace hello
             while (receiving)
             {
                 //use_str_Spilt();
-                //use_json_format_spilt();
+                use_json_format_spilt();
             }
         }
         float theta = 35 + 90;//角度值 4f->64
@@ -1004,7 +1003,7 @@ namespace hello
             {
                 payloadText = Encoding.UTF8.GetString(msg?.ApplicationMessage?.Payload ?? Array.Empty<byte>());
 
-                Console.WriteLine($"Received msg: {payloadText}");
+                //Console.WriteLine($"Received msg: {payloadText}");
             });
             /*
             client.UseApplicationMessageReceivedHandler(msg =>
@@ -1020,8 +1019,8 @@ namespace hello
             await client.SubscribeAsync(
                 new MqttTopicFilter
                 {
-                    //Topic = "ITRI1_Result"
-                    Topic = "ITRI1_MonitorReport"
+                    Topic = "ITRI1_Result"
+                    //Topic = "ITRI1_MonitorReport"
                     //Topic = "ITRI1_SensorMessage"
                 }
             );
