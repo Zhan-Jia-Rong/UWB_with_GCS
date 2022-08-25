@@ -479,7 +479,7 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-            if (payloadText.Contains("tag"))
+            if (payloadText.Contains("pan_id"))
             {
                 var getResult = JObject.Parse(payloadText);
 
