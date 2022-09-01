@@ -148,8 +148,8 @@ namespace hello
         public Form1()
         {
             InitializeComponent();
-            //MqttAsync();
-            MqttClientAsync();
+            //MqttServerAsync();      //Set MQTT server and load message.
+            MqttClientAsync();  //Connect to NTU server and load message.
             foreach (string com in System.IO.Ports.SerialPort.GetPortNames())
             {
                 comboBox1.Items.Add(com);
@@ -479,9 +479,9 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-            if (payloadText.Contains("pan_id"))
+            if (payloadText.Contains("pan_id"))  //Make sure the "JObject.Parse()" has not error.
             {
-                var getResult = JObject.Parse(payloadText);
+                var getResult = JObject.Parse(payloadText); //Json format spilt.
 
                 //Console.WriteLine(payload);
                 UWB_tag_id = (int)getResult["euid"];
@@ -548,6 +548,7 @@ namespace hello
                 use_json_format_spilt();
             }
         }
+
         float theta = 35 + 90;//角度值 4f->64
         double uwb_radians = 0;
         double uwb_angle = 0;
@@ -939,7 +940,8 @@ namespace hello
         {
         }
 
-        private async Task MqttAsync()
+        //-------------------------------mqtt set-------------------------------------------------
+        private async Task MqttServerAsync()
         {
             
             var optionsBuilder = new MqttServerOptionsBuilder().WithConnectionBacklog(100).WithDefaultEndpointPort(1883);
@@ -1029,8 +1031,10 @@ namespace hello
                 }
             );
         }
+        //-------------------------------mqtt set-------------------------------------------------
+
     }
 
 
-    
+
 }
