@@ -77,9 +77,11 @@ namespace hello
         const int m_Scale_diameter = 15;
         Bitmap m_image;
 
+        //MQTT message
+        public string payload;      //receive server data
+        public string payloadText;  //receive client data
+
         //MQTT tag message
-        public string payload;
-        public string payloadText;
         string pos_tag;
         byte[] tag_byte = new byte[1024];
         double[] tag0_pos = new double[3];
@@ -94,7 +96,9 @@ namespace hello
         double[] anchor3_pos = new double[2];
 
         //MQTT only can deliver one messages once,this parameter is used to identify what is the messages type (0=tag,1=anchor,2=disconnect).
-        int MQTT_messages_type = 0;
+        int MQTT_messages_type = 2;
+
+        int MQTT_receive_type=0;   // 0 = Using MQTT server, 1 = Using MQTT client.
 
 
 
@@ -148,12 +152,17 @@ namespace hello
         public Form1()
         {
             InitializeComponent();
-            //MqttServerAsync();      //Set MQTT server and load message.
-            MqttClientAsync();  //Connect to NTU server and load message.
-            foreach (string com in System.IO.Ports.SerialPort.GetPortNames())
+            if (MQTT_receive_type == 0)
             {
-                comboBox1.Items.Add(com);
+                label21.Text = "Server";
+                MqttServerAsync();      //Set MQTT server and load message.
             }
+            else
+            {
+                label21.Text = "Client";
+                MqttClientAsync();  //Connect to NTU server and load message.
+            }
+
             // Dock the PictureBox to the form and set its background to white.
             //pictureBox1.Dock = DockStyle.Fill;
             //pictureBox1.BackColor = Color.White;
@@ -474,7 +483,7 @@ namespace hello
                 }
             }
         }
-        private void use_json_format_spilt()
+        private void Use_json_format_spilt_Client_version()
         {
             int UWB_tag_id;
             int UWB_tag_grounp;
@@ -501,24 +510,6 @@ namespace hello
                     tag1_pos[2] = (double)getResult["global_pos"][2];
                     Console.WriteLine((string)getResult["global_pos"][0]);
                 }
-                /*
-                if ((string)getResult["command"] == "anchor")
-                {
-                    UWB_anchor_grounp = (int)getResult["group"];
-
-                    anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
-                    anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
-
-                    anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
-                    anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
-
-                    anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
-                    anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
-
-                    anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
-                    anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
-                }
-                */
                 if (payloadText.Contains("reconnected") !=true)
                 {
                     Display d = new Display(DisplayText);
@@ -528,6 +519,61 @@ namespace hello
                 {
 
                 }
+            }
+        }
+        private void Use_json_format_spilt_Server_version()
+        {
+            int UWB_tag_id;
+            int UWB_tag_grounp;
+            int UWB_anchor_grounp;
+
+            //Console.WriteLine(payload);
+            if (MQTT_messages_type == 0 )
+            {
+                var getResult = JObject.Parse(payload); //Json format spilt.
+                UWB_tag_id = (int)getResult["tag_id"];
+                UWB_tag_grounp = (int)getResult["group"];
+
+                if (UWB_tag_id == 4)
+                {
+                    tag0_pos[0] = (double)getResult["pos"][0];
+                    tag0_pos[1] = (double)getResult["pos"][1];
+                    tag0_pos[2] = (double)getResult["pos"][2];
+                    //Console.WriteLine((string)getResult["pos"][0]);
+                }
+                if (UWB_tag_id == 5)
+                {
+                    tag1_pos[0] = (double)getResult["pos"][0];
+                    tag1_pos[1] = (double)getResult["pos"][1];
+                    tag1_pos[2] = (double)getResult["pos"][2];
+                    //Console.WriteLine((string)getResult["pos"][0]);
+                }
+            }
+            if (MQTT_messages_type==1)
+            {
+                var getResult = JObject.Parse(payload); //Json format spilt.
+                UWB_anchor_grounp = (int)getResult["group"];
+
+                anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
+                anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
+
+                anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
+                anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
+
+                anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
+                anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
+
+                anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
+                anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
+            }
+            if (MQTT_messages_type != 2 )
+            {
+                Display d = new Display(DisplayText);
+                this.Invoke(d);
+            }
+            else
+            {
+
             }
         }
         private void DisplayText()
@@ -544,8 +590,16 @@ namespace hello
         {
             while (receiving)
             {
-                //use_str_Spilt();
-                use_json_format_spilt();
+                
+                if (MQTT_receive_type == 0)
+                {
+                    //use_str_Spilt();
+                    Use_json_format_spilt_Server_version();
+                }
+                else
+                {
+                    Use_json_format_spilt_Client_version();
+                }
             }
         }
 
@@ -799,7 +853,7 @@ namespace hello
             //label33.Text = Convert.ToString(cmd.x);
             //label34.Text = Convert.ToString(cmd.y);
 
-            cmd.z = -1.5f;
+            cmd.z = -1.5f;   //無人機指定飛行高度，單位為公尺
             DroneData drone = drones["bebop2"];
             byte[] pkt = mavlinkParse.GenerateMAVLinkPacket20(MAVLink.MAVLINK_MSG_ID.SET_POSITION_TARGET_LOCAL_NED, cmd);
             mavSock.SendTo(pkt, drone.ep);
@@ -968,7 +1022,7 @@ namespace hello
                     else if (payload.Contains("anchor") && payload.Length > 50)
                     {
                         /*  
-                        //use json format spilt
+                        //json format spilt test
                         var getResult = JObject.Parse(payload);
                         Console.WriteLine(getResult["anchor_pos"][0][0]);
                         Console.WriteLine("---------");
