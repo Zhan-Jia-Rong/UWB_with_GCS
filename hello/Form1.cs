@@ -297,8 +297,8 @@ namespace hello
             //int picBoxHeight_mid = pictureBox1.Size.Height/2;
             int picBoxWidth_mid = 0;
             int count = 0;
-            int widthMax = 19; //8
-            int hieighMax = 19; //5
+            int widthMax = 5; //8
+            int hieighMax = 5; //5
             int width = 0;
             //int px = 0;
             //int py = 0;
@@ -488,7 +488,11 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-            if (payloadText.Contains("pan_id"))  //Make sure the "JObject.Parse()" has not error.
+            if (payloadText==null)
+            {
+                Console.WriteLine("QQ");
+            }
+                if (payloadText.Contains("pan_id"))  //Make sure the "JObject.Parse()" has not error.
             {
                 var getResult = JObject.Parse(payloadText); //Json format spilt.
 
@@ -526,22 +530,20 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-
-            //Console.WriteLine(payload);
-            if (MQTT_messages_type == 0 )
+            var getResult = JObject.Parse(payload); //Json format spilt.
+            if ((string)getResult["cmd"]=="tag")
             {
-                var getResult = JObject.Parse(payload); //Json format spilt.
-                UWB_tag_id = (int)getResult["tag_id"];
+                UWB_tag_id = (int)getResult["euid"];
                 UWB_tag_grounp = (int)getResult["group"];
 
-                if (UWB_tag_id == 4)
+                if (UWB_tag_id == 01)
                 {
                     tag0_pos[0] = (double)getResult["pos"][0];
                     tag0_pos[1] = (double)getResult["pos"][1];
                     tag0_pos[2] = (double)getResult["pos"][2];
                     //Console.WriteLine((string)getResult["pos"][0]);
                 }
-                if (UWB_tag_id == 5)
+                if (UWB_tag_id == 02)
                 {
                     tag1_pos[0] = (double)getResult["pos"][0];
                     tag1_pos[1] = (double)getResult["pos"][1];
@@ -549,32 +551,25 @@ namespace hello
                     //Console.WriteLine((string)getResult["pos"][0]);
                 }
             }
-            if (MQTT_messages_type==1)
+            if ((string)getResult["cmd"] == "region")
             {
-                var getResult = JObject.Parse(payload); //Json format spilt.
                 UWB_anchor_grounp = (int)getResult["group"];
 
-                anchor0_pos[0] = (double)getResult["anchor_pos"][0][0];   // string to double
-                anchor0_pos[1] = (double)getResult["anchor_pos"][0][1];
+                anchor0_pos[0] = (double)getResult["pos"][0][0];   // string to double
+                anchor0_pos[1] = (double)getResult["pos"][0][1];
 
-                anchor1_pos[0] = (double)getResult["anchor_pos"][1][0];
-                anchor1_pos[1] = (double)getResult["anchor_pos"][1][1];
+                anchor1_pos[0] = (double)getResult["pos"][1][0];
+                anchor1_pos[1] = (double)getResult["pos"][1][1];
 
-                anchor2_pos[0] = (double)getResult["anchor_pos"][2][0];
-                anchor2_pos[1] = (double)getResult["anchor_pos"][2][1];
+                anchor2_pos[0] = (double)getResult["pos"][2][0];
+                anchor2_pos[1] = (double)getResult["pos"][2][1];
 
-                anchor3_pos[0] = (double)getResult["anchor_pos"][3][0];
-                anchor3_pos[1] = (double)getResult["anchor_pos"][3][1];
+                anchor3_pos[0] = (double)getResult["pos"][3][0];
+                anchor3_pos[1] = (double)getResult["pos"][3][1];
             }
-            if (MQTT_messages_type != 2 )
-            {
-                Display d = new Display(DisplayText);
-                this.Invoke(d);
-            }
-            else
-            {
+             Display d = new Display(DisplayText);
+             this.Invoke(d);
 
-            }
         }
         private void DisplayText()
         {
@@ -1003,7 +998,7 @@ namespace hello
             await mqttServer.StartAsync(optionsBuilder.Build());
             mqttServer.ApplicationMessageReceivedHandler = new MqttApplicationMessageReceivedHandlerDelegate(e =>
             {
-                Console.WriteLine($"Client:{e.ClientId} Topic:{e.ApplicationMessage.Topic} Message:{Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0])}");
+                //Console.WriteLine($"Client:{e.ClientId} Topic:{e.ApplicationMessage.Topic} Message:{Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0])}");
                 payload = Encoding.UTF8.GetString(e.ApplicationMessage.Payload ?? new byte[0]);
                 if (payload.Contains("disconnect"))
                 {
@@ -1012,14 +1007,14 @@ namespace hello
                 }
                 else
                 {
-                    if (payload.Contains("tag") && payload.Length > 50)
+                    if (payload.Contains("tag") )
                     {
                         //use string spilt
                         tag_byte = e.ApplicationMessage.Payload ?? new byte[0];
                         pos_tag = Encoding.UTF8.GetString(tag_byte);
                         MQTT_messages_type = 0;
                     }
-                    else if (payload.Contains("anchor") && payload.Length > 50)
+                    else if (payload.Contains("anchor") )
                     {
                         /*  
                         //json format spilt test
