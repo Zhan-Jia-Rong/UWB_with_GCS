@@ -488,42 +488,29 @@ namespace hello
             int UWB_tag_id;
             int UWB_tag_grounp;
             int UWB_anchor_grounp;
-            if (payloadText==null)
+            var getResult = JObject.Parse(payloadText); //Json format spilt.
+
+            //Console.WriteLine(payload);
+            UWB_tag_id = (int)getResult["euid"];
+            UWB_tag_grounp = (int)getResult["pan_id"];
+
+            if (UWB_tag_id == 01)
             {
-                Console.WriteLine("QQ");
+                tag0_pos[0] = (double)getResult["global_pos"][0];
+                tag0_pos[1] = (double)getResult["global_pos"][1];
+                tag0_pos[2] = (double)getResult["global_pos"][2];
+                Console.WriteLine((string)getResult["global_pos"][0]);
             }
-                if (payloadText.Contains("pan_id"))  //Make sure the "JObject.Parse()" has not error.
+            if (UWB_tag_id == 02)
             {
-                var getResult = JObject.Parse(payloadText); //Json format spilt.
-
-                //Console.WriteLine(payload);
-                UWB_tag_id = (int)getResult["euid"];
-                UWB_tag_grounp = (int)getResult["pan_id"];
-
-                if (UWB_tag_id == 01)
-                {
-                    tag0_pos[0] = (double)getResult["global_pos"][0];
-                    tag0_pos[1] = (double)getResult["global_pos"][1];
-                    tag0_pos[2] = (double)getResult["global_pos"][2];
-                    Console.WriteLine((string)getResult["global_pos"][0]);
-                }
-                if (UWB_tag_id == 02)
-                {
-                    tag1_pos[0] = (double)getResult["global_pos"][0];
-                    tag1_pos[1] = (double)getResult["global_pos"][1];
-                    tag1_pos[2] = (double)getResult["global_pos"][2];
-                    Console.WriteLine((string)getResult["global_pos"][0]);
-                }
-                if (payloadText.Contains("reconnected") !=true)
-                {
-                    Display d = new Display(DisplayText);
-                    this.Invoke(d);
-                }
-                else
-                {
-
-                }
+                tag1_pos[0] = (double)getResult["global_pos"][0];
+                tag1_pos[1] = (double)getResult["global_pos"][1];
+                tag1_pos[2] = (double)getResult["global_pos"][2];
+                Console.WriteLine((string)getResult["global_pos"][0]);
             }
+            Display d = new Display(DisplayText);
+            this.Invoke(d);
+
         }
         private void Use_json_format_spilt_Server_version()
         {
@@ -613,6 +600,7 @@ namespace hello
             label33.Text = Convert.ToString(tag1_pos[0]);
             label34.Text = Convert.ToString(tag1_pos[1]);
             uwb_radians = Math.Atan2(tag1_pos[1] - tag0_pos[1], tag1_pos[0] - tag0_pos[0]); //set tag0_pos close (0.0)
+            //uwb_radians = Math.Atan2(tag0_pos[1] - tag1_pos[1], tag0_pos[0] - tag1_pos[0]); //set tag1_pos close (0.0)
             uwb_radians = uwb_radians - radian;   
             uwb_angle = -uwb_radians * (180 / Math.PI);   
             if (uwb_angle < 0) uwb_angle = uwb_angle + 360;  // (-uwb_radians) mean ( 0~180 and 0~-180 )to 0~360
@@ -638,6 +626,9 @@ namespace hello
 
                 vision_position.x = (float)(tag1_pos[0] * Math.Cos(radian) + tag1_pos[1] * Math.Sin(radian)); //north for use compass
                 vision_position.y = (float)-((-tag1_pos[0] * Math.Sin(radian)) + tag1_pos[1] * Math.Cos(radian)); //east  for use compass
+
+                //vision_position.x = (float)(tag0_pos[0] * Math.Cos(radian) + tag0_pos[1] * Math.Sin(radian)); //north for use compass
+                //vision_position.y = (float)-((-tag0_pos[0] * Math.Sin(radian)) + tag0_pos[1] * Math.Cos(radian)); //east  for use compass
 
                 vision_position.yaw = (float)-uwb_radians;  //In NED frame the Z-axis points down to represent positive. so we need add negative.
 
